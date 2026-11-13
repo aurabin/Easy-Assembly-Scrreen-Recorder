@@ -71,8 +71,6 @@ dialog_proc:
 .command:
     cmp r8w, 2
     je .close
-    cmp r8w, 103
-    je .support
     cmp r8w, 102
     je .language_changed
     cmp r8w, 100
@@ -85,9 +83,6 @@ dialog_proc:
     test eax, eax
     jnz .handled
     call start_countdown
-    jmp .handled
-.support:
-    call open_support_page
     jmp .handled
 .language_changed:
     shr r8d, 16
@@ -282,10 +277,6 @@ change_language:
     mov rcx, [rip+window]
     localized rdx, title
     api SetWindowTextW
-    mov rcx, [rip+window]
-    mov edx, 103
-    localized r8, support_label
-    api SetDlgItemTextW
     cmp dword ptr [rip+state], 1
     je .language_countdown
     cmp dword ptr [rip+state], 2
@@ -902,23 +893,6 @@ release_capture:
     add rsp, 40
     ret
 
-open_support_page:
-    sub rsp, 56
-    mov rcx, [rip+window]
-    xor edx, edx
-    address r8, support_url
-    xor r9d, r9d
-    mov qword ptr [rsp+32], 0
-    mov qword ptr [rsp+40], 1
-    api ShellExecuteW
-    cmp rax, 32
-    ja .support_return
-    localized rdx, support_error
-    call error_message
-.support_return:
-    add rsp, 56
-    ret
-
 error_message:
     sub rsp, 40
     mov rcx, [rip+window]
@@ -1041,7 +1015,7 @@ guid subtype_nv12, 0x3231564e, 0, 0x0010, 0x80,0,0,0xaa,0,0x38,0x9b,0x71
 .balign 4
 dialog:
     .long 0x90ca00c0, 0x00040000
-    .short 4, 0, 0, 260, 104
+    .short 3, 0, 0, 260, 76
     .short 0, 0
     utf16 "Screen Recorder"
     .short 9
@@ -1057,10 +1031,6 @@ dialog:
     .balign 4
     .long 0x50210003, 0          # CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
     .short 157, 40, 93, 67, 102, 0xffff, 0x85
-    .short 0, 0
-    .balign 4
-    .long 0x50010000, 0
-    .short 10, 68, 135, 22, 103, 0xffff, 0x80
     .short 0, 0
 language_names:
     .long english-language_names, german-language_names, portuguese-language_names
@@ -1197,23 +1167,6 @@ filter_2:
     .short 0x56, 0xed, 0x64, 0x65, 0x6f, 0x20, 0x4d, 0x50, 0x34, 0x20, 0x28, 0x2a, 0x2e, 0x6d, 0x70, 0x34, 0x29, 0x0, 0x2a, 0x2e, 0x6d, 0x70, 0x34, 0x0, 0x0
 countdown_label_table:
     .long countdown_label_0-countdown_label_table, countdown_label_1-countdown_label_table, countdown_label_2-countdown_label_table
-support_url: utf16 "https://bunq.me/JMLealRuivo"
-support_label_table:
-    .long support_en-support_label_table, support_de-support_label_table, support_pt-support_label_table
-support_en: utf16 "Support this project..."
-support_de:
-    # Projekt unterstützen...
-    .short 0x50, 0x72, 0x6f, 0x6a, 0x65, 0x6b, 0x74, 0x20, 0x75, 0x6e, 0x74, 0x65, 0x72, 0x73, 0x74, 0xfc, 0x74, 0x7a, 0x65, 0x6e, 0x2e, 0x2e, 0x2e, 0x0
-support_pt: utf16 "Apoiar este projeto..."
-support_error_table:
-    .long support_error_en-support_error_table, support_error_de-support_error_table, support_error_pt-support_error_table
-support_error_en: utf16 "Could not open the support page in your browser."
-support_error_de:
-    # Die Supportseite konnte im Browser nicht geöffnet werden.
-    .short 0x44, 0x69, 0x65, 0x20, 0x53, 0x75, 0x70, 0x70, 0x6f, 0x72, 0x74, 0x73, 0x65, 0x69, 0x74, 0x65, 0x20, 0x6b, 0x6f, 0x6e, 0x6e, 0x74, 0x65, 0x20, 0x69, 0x6d, 0x20, 0x42, 0x72, 0x6f, 0x77, 0x73, 0x65, 0x72, 0x20, 0x6e, 0x69, 0x63, 0x68, 0x74, 0x20, 0x67, 0x65, 0xf6, 0x66, 0x66, 0x6e, 0x65, 0x74, 0x20, 0x77, 0x65, 0x72, 0x64, 0x65, 0x6e, 0x2e, 0x0
-support_error_pt:
-    # Não foi possível abrir a página de apoio no navegador.
-    .short 0x4e, 0xe3, 0x6f, 0x20, 0x66, 0x6f, 0x69, 0x20, 0x70, 0x6f, 0x73, 0x73, 0xed, 0x76, 0x65, 0x6c, 0x20, 0x61, 0x62, 0x72, 0x69, 0x72, 0x20, 0x61, 0x20, 0x70, 0xe1, 0x67, 0x69, 0x6e, 0x61, 0x20, 0x64, 0x65, 0x20, 0x61, 0x70, 0x6f, 0x69, 0x6f, 0x20, 0x6e, 0x6f, 0x20, 0x6e, 0x61, 0x76, 0x65, 0x67, 0x61, 0x64, 0x6f, 0x72, 0x2e, 0x0
 extension: utf16 "mp4"
 default_name: utf16 "Recording.mp4"
 temp_prefix: utf16 "REC"
@@ -1255,4 +1208,3 @@ imports WINMM, timeBeginPeriod, timeEndPeriod
 imports DWMAPI, DwmFlush
 imports MFPLAT, MFStartup, MFShutdown, MFCreateAttributes, MFCreateMediaType, MFCreateMemoryBuffer, MFCreateSample, MFCreateFile
 imports MFREADWRITE, MFCreateSinkWriterFromURL
-imports SHELL32, ShellExecuteW

@@ -15,7 +15,7 @@ The capture code supports primary display dimensions up to 4096 pixels per side.
 
 ## Support
 
-Recording and saving are free. **Support this project…** opens the developer’s [bunq.me page](https://bunq.me/JMLealRuivo) in your browser. Any contribution is optional, and available payment amounts depend on bunq and the payment method.
+Recording and saving are free. You can support the project on the developer’s [bunq.me page](https://bunq.me/JMLealRuivo). Any contribution is optional, and available payment amounts depend on bunq and the payment method.
 
 ## Build
 
