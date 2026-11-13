@@ -4,7 +4,21 @@
 
 A small x86-64 assembly screen recorder for 64-bit Windows 10 (version 1703 or later) and Windows 11. It captures the entire primary display and targets 30 frames per second. Windows Media Foundation encodes H.264 video into an MP4 file. Recordings are silent.
 
-## Record
+## Downloads
+
+| Platform | Download |
+|---|---|
+| Windows x64 | [Download ZIP](https://github.com/aurabin/Easy-Assembly-Scrreen-Recorder/raw/refs/heads/main/downloads/Easy_Screen_Recorder_Windows-x64.zip) |
+| AmigaOS 3.9 · 68040 | [Download ZIP](https://github.com/aurabin/Easy-Assembly-Scrreen-Recorder/raw/refs/heads/main/downloads/Easy_Screen_Recorder_AmigaOS39-040.zip) |
+| AmigaOS 3.9 · 68060 | [Download ZIP](https://github.com/aurabin/Easy-Assembly-Scrreen-Recorder/raw/refs/heads/main/downloads/Easy_Screen_Recorder_AmigaOS39-060.zip) |
+| Apollo Vampire · 68080 | [Download ZIP](https://github.com/aurabin/Easy-Assembly-Scrreen-Recorder/raw/refs/heads/main/downloads/Easy_Screen_Recorder_Apollo-Vampire-080.zip) |
+| AROS/m68k · 68080 | [Download ZIP](https://github.com/aurabin/Easy-Assembly-Scrreen-Recorder/raw/refs/heads/main/downloads/Easy_Screen_Recorder_AROS-m68k-080.zip) |
+| AROS x86-64 · C | [Download ZIP](https://github.com/aurabin/Easy-Assembly-Scrreen-Recorder/raw/refs/heads/main/downloads/Easy_Screen_Recorder_AROS-x86_64-c.zip) |
+| AROS x86-64 · C++ | [Download ZIP](https://github.com/aurabin/Easy-Assembly-Scrreen-Recorder/raw/refs/heads/main/downloads/Easy_Screen_Recorder_AROS-x86_64-cpp.zip) |
+
+Each ZIP includes the executable for that platform, source code, and documentation. The Amiga and AROS packages include Shell usage and build instructions.
+
+## Record (Windows)
 
 Choose **English**, **Deutsch**, or **Português** in the drop-down. The app starts in the Windows display language when it is supported and uses English otherwise.
 
