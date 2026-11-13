@@ -4,6 +4,8 @@ A small x86-64 assembly screen recorder for 64-bit Windows 10 (version 1703 or l
 
 ## Record
 
+Choose **English**, **Deutsch**, or **Português** in the drop-down. The app starts in the Windows display language when it is supported and uses English otherwise.
+
 1. Run **ScreenRecorder.exe**.
 2. Click **Start recording…** and choose an MP4 destination.
 3. The window minimizes when the 15-second countdown ends.

@@ -15,6 +15,13 @@
     mov rax, [rcx]
     call qword ptr [rax+8*\slot]
 .endm
+.macro localized reg, key
+    mov r10d, [rip+language]
+    lea r11, [rip+\key\()_table]
+    movsxd \reg, dword ptr [r11+r10*4]
+    add \reg, r11
+.endm
+
 .macro check failure
     test eax, eax
     js \failure
@@ -59,10 +66,13 @@ dialog_proc:
     jmp .return
 .init:
     mov [rip+window], rcx
+    call init_languages
     jmp .handled
 .command:
     cmp r8w, 2
     je .close
+    cmp r8w, 102
+    je .language_changed
     cmp r8w, 100
     jne .handled
     mov eax, [rip+state]
@@ -73,6 +83,12 @@ dialog_proc:
     test eax, eax
     jnz .handled
     call start_countdown
+    jmp .handled
+.language_changed:
+    shr r8d, 16
+    cmp r8d, 1                  # CBN_SELCHANGE
+    jne .handled
+    call change_language
     jmp .handled
 .hotkey:
     cmp r8, 10
@@ -123,7 +139,7 @@ start_countdown:
     mov [rip+save_owner], rax
     address rax, path
     mov [rip+save_path], rax
-    address rax, filter
+    localized rax, filter
     mov [rip+save_filter], rax
     address rax, extension
     mov [rip+save_extension], rax
@@ -149,7 +165,7 @@ start_countdown:
     mov [rip+deadline], rax
     mov dword ptr [rip+seconds_shown], 0
     mov dword ptr [rip+state], 1
-    address r8, cancel_label
+    localized r8, cancel_label
     call set_button
     call countdown_tick
     jmp .countdown_return
@@ -159,11 +175,11 @@ start_countdown:
     jz .reset_state
     jmp .timer_failure
 .wrong_extension:
-    address rdx, extension_error_label
+    localized rdx, extension_error_label
     call error_message
     jmp .reset_state
 .timer_failure:
-    address rdx, start_error_label
+    localized rdx, start_error_label
     call error_message
 .reset_state:
     mov dword ptr [rip+state], 0
@@ -184,24 +200,113 @@ countdown_tick:
     cmp eax, [rip+seconds_shown]
     je .tick_return
     mov [rip+seconds_shown], eax
-    xor edx, edx
-    mov ecx, 10
-    div ecx
-    add eax, '0'
-    add edx, '0'
-    mov [rip+count_digits], ax
-    mov [rip+count_digits+2], dx
-    address r8, countdown_label
-    call set_status
+    call show_countdown
     jmp .tick_return
 .countdown_done:
     mov dword ptr [rip+state], 3
     call stop_timer
     mov rcx, [rip+window]
-    mov edx, 6                  # SW_MINIMIZE
+    mov edx, 6
     api ShowWindow
     call begin_recording
 .tick_return:
+    add rsp, 40
+    ret
+
+show_countdown:
+    mov eax, [rip+seconds_shown]
+    xor edx, edx
+    mov ecx, 10
+    div ecx
+    add eax, '0'
+    add edx, '0'
+    localized r8, countdown_label
+    mov [r8], ax
+    mov [r8+2], dx
+    jmp set_status
+
+init_languages:
+    sub rsp, 56
+    mov dword ptr [rsp+40], 0
+    lea rax, [rip+language_names]
+    mov [rsp+48], rax
+.add_language:
+    mov rax, [rsp+48]
+    movsxd r9, dword ptr [rax]
+    lea rdx, [rip+language_names]
+    add r9, rdx
+    mov rcx, [rip+window]
+    mov edx, 102
+    mov r8d, 0x143              # CB_ADDSTRING
+    mov [rsp+32], r9
+    xor r9d, r9d
+    api SendDlgItemMessageW
+    add qword ptr [rsp+48], 4
+    inc dword ptr [rsp+40]
+    cmp dword ptr [rsp+40], 3
+    jb .add_language
+    api GetUserDefaultUILanguage
+    and eax, 0x3ff
+    xor r9d, r9d
+    cmp eax, 7                  # German
+    sete r9b
+    cmp eax, 22                 # Portuguese
+    jne .initial_language
+    mov r9d, 2
+.initial_language:
+    mov rcx, [rip+window]
+    mov edx, 102
+    mov r8d, 0x14e              # CB_SETCURSEL
+    mov qword ptr [rsp+32], 0
+    api SendDlgItemMessageW
+    call change_language
+    add rsp, 56
+    ret
+
+change_language:
+    sub rsp, 56
+    mov rcx, [rip+window]
+    mov edx, 102
+    mov r8d, 0x147              # CB_GETCURSEL
+    xor r9d, r9d
+    mov qword ptr [rsp+32], 0
+    api SendDlgItemMessageW
+    cmp eax, 2
+    ja .language_return
+    mov [rip+language], eax
+    mov rcx, [rip+window]
+    localized rdx, title
+    api SetWindowTextW
+    cmp dword ptr [rip+state], 1
+    je .language_countdown
+    cmp dword ptr [rip+state], 2
+    je .language_recording
+    localized r8, start_label
+    call set_button
+    localized r8, ready_label
+    call set_status
+    jmp .language_return
+.language_countdown:
+    localized r8, cancel_label
+    call set_button
+    call show_countdown
+    jmp .language_return
+.language_recording:
+    call show_recording
+.language_return:
+    add rsp, 56
+    ret
+
+show_recording:
+    sub rsp, 40
+    localized r8, stop_label
+    call set_button
+    localized r8, recording_label
+    cmp dword ptr [rip+hotkey_active], 0
+    jne .recording_status
+    localized r8, no_hotkey_label
+.recording_status:
+    call set_status
     add rsp, 40
     ret
 
@@ -231,14 +336,7 @@ begin_recording:
     api SetTimer
     test rax, rax
     jz .begin_failed
-    address r8, stop_label
-    call set_button
-    address r8, recording_label
-    cmp dword ptr [rip+hotkey_active], 0
-    jne .record_status
-    address r8, no_hotkey_label
-.record_status:
-    call set_status
+    call show_recording
     api DwmFlush
     api GetTickCount64
     mov [rip+record_start], rax
@@ -250,7 +348,7 @@ begin_recording:
     call discard_temp
     call reset_ui
     call restore_window
-    address rdx, start_error_label
+    localized rdx, start_error_label
     call error_message
 .begin_return:
     add rsp, 72
@@ -652,10 +750,10 @@ finish_recording:
     mov byte ptr [rip+temp_exists], 0
     call reset_ui
     call restore_window
-    address r8, saved_label
+    localized r8, saved_label
     cmp dword ptr [rsp+40], 0
     je .saved_status
-    address r8, interrupted_label
+    localized r8, interrupted_label
 .saved_status:
     call set_status
     jmp .finish_return
@@ -663,7 +761,7 @@ finish_recording:
     mov byte ptr [rip+temp_exists], 0
     call reset_ui
     call restore_window
-    address r8, move_error_label
+    localized r8, move_error_label
     call set_status
     address rdx, temp_path
     call error_message
@@ -673,7 +771,7 @@ finish_recording:
     call discard_temp
     call reset_ui
     call restore_window
-    address rdx, save_error_label
+    localized rdx, save_error_label
     call error_message
 .finish_return:
     add rsp, 56
@@ -740,9 +838,9 @@ reset_ui:
     sub rsp, 40
     call stop_timer
     mov dword ptr [rip+state], 0
-    address r8, start_label
+    localized r8, start_label
     call set_button
-    address r8, ready_label
+    localized r8, ready_label
     call set_status
     add rsp, 40
     ret
@@ -798,7 +896,7 @@ release_capture:
 error_message:
     sub rsp, 40
     mov rcx, [rip+window]
-    address r8, title
+    localized r8, title
     mov r9d, 0x10
     api MessageBoxW
     add rsp, 40
@@ -822,6 +920,7 @@ deadline: .quad 0
 record_start: .quad 0
 next_slot: .quad 0
 state: .long 0
+language: .long 0
 frames: .long 0
 stream_index: .long 0
 seconds_shown: .long 0
@@ -865,10 +964,13 @@ save_extension: .quad 0
 path: .zero 520
 directory: .zero 520
 temp_path: .zero 520
-countdown_label:
-    .short 82, 101, 99, 111, 114, 100, 105, 110, 103, 32, 115, 116, 97, 114, 116, 115, 32, 105, 110, 32
-count_digits:
-    .string16 "15 seconds"
+countdown_label_0:
+    .string16 "15 seconds until recording"
+countdown_label_1:
+    .string16 "15 Sekunden bis zur Aufnahme"
+countdown_label_2:
+    # 15 segundos até à gravação
+    .short 0x31, 0x35, 0x20, 0x73, 0x65, 0x67, 0x75, 0x6e, 0x64, 0x6f, 0x73, 0x20, 0x61, 0x74, 0xe9, 0x20, 0xe0, 0x20, 0x67, 0x72, 0x61, 0x76, 0x61, 0xe7, 0xe3, 0x6f, 0x0
 
 .section .rdata,"a"
 .macro utf16 value:vararg
@@ -912,33 +1014,159 @@ guid subtype_nv12, 0x3231564e, 0, 0x0010, 0x80,0,0,0xaa,0,0x38,0x9b,0x71
 
 .balign 4
 dialog:
-    .long 0x90ca00c0, 0x00040000 # WS_MINIMIZEBOX | WS_EX_APPWINDOW
-    .short 2, 0, 0, 218, 68
+    .long 0x90ca00c0, 0x00040000
+    .short 3, 0, 0, 260, 76
     .short 0, 0
-title: utf16 "Screen Recorder"
+    utf16 "Screen Recorder"
     .short 9
     utf16 "Segoe UI"
     .balign 4
     .long 0x50000000, 0
-    .short 10, 10, 198, 19, 101, 0xffff, 0x82
-ready_label: utf16 "Full primary display - MP4 / 30 fps"
-    .short 0
+    .short 10, 11, 240, 20, 101, 0xffff, 0x82
+    .short 0, 0
     .balign 4
     .long 0x50010000, 0
-    .short 10, 35, 124, 22, 100, 0xffff, 0x80
-start_label: utf16 "Start recording..."
-    .short 0
-stop_label: utf16 "Stop and save"
-cancel_label: utf16 "Cancel countdown"
-recording_label: utf16 "Recording - Ctrl+Shift+F10 to save"
-no_hotkey_label: utf16 "Recording - click Stop and save"
-saved_label: utf16 "MP4 saved."
-interrupted_label: utf16 "Recording interrupted. Partial MP4 saved."
-move_error_label: utf16 "Could not move MP4. Temporary path shown."
-start_error_label: utf16 "Could not start. Check your save location, display size, and Windows Media Foundation."
-extension_error_label: utf16 "Choose a filename ending in .mp4."
-save_error_label: utf16 "Could not finalize the MP4. Check your available disk space."
-filter: utf16 "MP4 video (*.mp4)", "*.mp4", ""
+    .short 10, 39, 135, 22, 100, 0xffff, 0x80
+    .short 0, 0
+    .balign 4
+    .long 0x50210003, 0          # CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    .short 157, 40, 93, 67, 102, 0xffff, 0x85
+    .short 0, 0
+language_names:
+    .long english-language_names, german-language_names, portuguese-language_names
+english:
+    utf16 "English"
+german:
+    utf16 "Deutsch"
+portuguese:
+    # Português
+    .short 0x50, 0x6f, 0x72, 0x74, 0x75, 0x67, 0x75, 0xea, 0x73, 0x0
+title_table:
+    .long title_0-title_table, title_1-title_table, title_2-title_table
+title_0:
+    .string16 "Screen Recorder"
+title_1:
+    .string16 "Bildschirmrekorder"
+title_2:
+    # Gravador de ecrã
+    .short 0x47, 0x72, 0x61, 0x76, 0x61, 0x64, 0x6f, 0x72, 0x20, 0x64, 0x65, 0x20, 0x65, 0x63, 0x72, 0xe3, 0x0
+ready_label_table:
+    .long ready_label_0-ready_label_table, ready_label_1-ready_label_table, ready_label_2-ready_label_table
+ready_label_0:
+    .string16 "Full primary display - MP4 / 30 fps"
+ready_label_1:
+    .string16 "Ganzer Hauptbildschirm - MP4 / 30 fps"
+ready_label_2:
+    # Ecrã principal completo - MP4 / 30 fps
+    .short 0x45, 0x63, 0x72, 0xe3, 0x20, 0x70, 0x72, 0x69, 0x6e, 0x63, 0x69, 0x70, 0x61, 0x6c, 0x20, 0x63, 0x6f, 0x6d, 0x70, 0x6c, 0x65, 0x74, 0x6f, 0x20, 0x2d, 0x20, 0x4d, 0x50, 0x34, 0x20, 0x2f, 0x20, 0x33, 0x30, 0x20, 0x66, 0x70, 0x73, 0x0
+start_label_table:
+    .long start_label_0-start_label_table, start_label_1-start_label_table, start_label_2-start_label_table
+start_label_0:
+    .string16 "Start recording..."
+start_label_1:
+    .string16 "Aufnahme starten..."
+start_label_2:
+    # Iniciar gravação...
+    .short 0x49, 0x6e, 0x69, 0x63, 0x69, 0x61, 0x72, 0x20, 0x67, 0x72, 0x61, 0x76, 0x61, 0xe7, 0xe3, 0x6f, 0x2e, 0x2e, 0x2e, 0x0
+stop_label_table:
+    .long stop_label_0-stop_label_table, stop_label_1-stop_label_table, stop_label_2-stop_label_table
+stop_label_0:
+    .string16 "Stop and save"
+stop_label_1:
+    .string16 "Stoppen und speichern"
+stop_label_2:
+    .string16 "Parar e guardar"
+cancel_label_table:
+    .long cancel_label_0-cancel_label_table, cancel_label_1-cancel_label_table, cancel_label_2-cancel_label_table
+cancel_label_0:
+    .string16 "Cancel countdown"
+cancel_label_1:
+    .string16 "Countdown abbrechen"
+cancel_label_2:
+    .string16 "Cancelar contagem"
+recording_label_table:
+    .long recording_label_0-recording_label_table, recording_label_1-recording_label_table, recording_label_2-recording_label_table
+recording_label_0:
+    .string16 "Recording - Ctrl+Shift+F10 to save"
+recording_label_1:
+    .string16 "Aufnahme - Strg+Umschalt+F10 zum Speichern"
+recording_label_2:
+    .string16 "A gravar - Ctrl+Shift+F10 para guardar"
+no_hotkey_label_table:
+    .long no_hotkey_label_0-no_hotkey_label_table, no_hotkey_label_1-no_hotkey_label_table, no_hotkey_label_2-no_hotkey_label_table
+no_hotkey_label_0:
+    .string16 "Recording - click Stop and save"
+no_hotkey_label_1:
+    .string16 "Aufnahme - auf Stoppen und speichern klicken"
+no_hotkey_label_2:
+    .string16 "A gravar - clique em Parar e guardar"
+saved_label_table:
+    .long saved_label_0-saved_label_table, saved_label_1-saved_label_table, saved_label_2-saved_label_table
+saved_label_0:
+    .string16 "MP4 saved."
+saved_label_1:
+    .string16 "MP4 gespeichert."
+saved_label_2:
+    .string16 "MP4 guardado."
+interrupted_label_table:
+    .long interrupted_label_0-interrupted_label_table, interrupted_label_1-interrupted_label_table, interrupted_label_2-interrupted_label_table
+interrupted_label_0:
+    .string16 "Recording interrupted. Partial MP4 saved."
+interrupted_label_1:
+    .string16 "Aufnahme unterbrochen. Teilaufnahme gespeichert."
+interrupted_label_2:
+    # Gravação interrompida. MP4 parcial guardado.
+    .short 0x47, 0x72, 0x61, 0x76, 0x61, 0xe7, 0xe3, 0x6f, 0x20, 0x69, 0x6e, 0x74, 0x65, 0x72, 0x72, 0x6f, 0x6d, 0x70, 0x69, 0x64, 0x61, 0x2e, 0x20, 0x4d, 0x50, 0x34, 0x20, 0x70, 0x61, 0x72, 0x63, 0x69, 0x61, 0x6c, 0x20, 0x67, 0x75, 0x61, 0x72, 0x64, 0x61, 0x64, 0x6f, 0x2e, 0x0
+move_error_label_table:
+    .long move_error_label_0-move_error_label_table, move_error_label_1-move_error_label_table, move_error_label_2-move_error_label_table
+move_error_label_0:
+    .string16 "Could not move MP4. Temporary path shown."
+move_error_label_1:
+    # MP4 konnte nicht verschoben werden. Temporärer Pfad angezeigt.
+    .short 0x4d, 0x50, 0x34, 0x20, 0x6b, 0x6f, 0x6e, 0x6e, 0x74, 0x65, 0x20, 0x6e, 0x69, 0x63, 0x68, 0x74, 0x20, 0x76, 0x65, 0x72, 0x73, 0x63, 0x68, 0x6f, 0x62, 0x65, 0x6e, 0x20, 0x77, 0x65, 0x72, 0x64, 0x65, 0x6e, 0x2e, 0x20, 0x54, 0x65, 0x6d, 0x70, 0x6f, 0x72, 0xe4, 0x72, 0x65, 0x72, 0x20, 0x50, 0x66, 0x61, 0x64, 0x20, 0x61, 0x6e, 0x67, 0x65, 0x7a, 0x65, 0x69, 0x67, 0x74, 0x2e, 0x0
+move_error_label_2:
+    # Não foi possível mover o MP4. Caminho temporário indicado.
+    .short 0x4e, 0xe3, 0x6f, 0x20, 0x66, 0x6f, 0x69, 0x20, 0x70, 0x6f, 0x73, 0x73, 0xed, 0x76, 0x65, 0x6c, 0x20, 0x6d, 0x6f, 0x76, 0x65, 0x72, 0x20, 0x6f, 0x20, 0x4d, 0x50, 0x34, 0x2e, 0x20, 0x43, 0x61, 0x6d, 0x69, 0x6e, 0x68, 0x6f, 0x20, 0x74, 0x65, 0x6d, 0x70, 0x6f, 0x72, 0xe1, 0x72, 0x69, 0x6f, 0x20, 0x69, 0x6e, 0x64, 0x69, 0x63, 0x61, 0x64, 0x6f, 0x2e, 0x0
+start_error_label_table:
+    .long start_error_label_0-start_error_label_table, start_error_label_1-start_error_label_table, start_error_label_2-start_error_label_table
+start_error_label_0:
+    .string16 "Could not start. Check your save location, display size, and Windows Media Foundation."
+start_error_label_1:
+    # Start fehlgeschlagen. Prüfen Sie den Speicherort, die Bildschirmgröße und Windows Media Foundation.
+    .short 0x53, 0x74, 0x61, 0x72, 0x74, 0x20, 0x66, 0x65, 0x68, 0x6c, 0x67, 0x65, 0x73, 0x63, 0x68, 0x6c, 0x61, 0x67, 0x65, 0x6e, 0x2e, 0x20, 0x50, 0x72, 0xfc, 0x66, 0x65, 0x6e, 0x20, 0x53, 0x69, 0x65, 0x20, 0x64, 0x65, 0x6e, 0x20, 0x53, 0x70, 0x65, 0x69, 0x63, 0x68, 0x65, 0x72, 0x6f, 0x72, 0x74, 0x2c, 0x20, 0x64, 0x69, 0x65, 0x20, 0x42, 0x69, 0x6c, 0x64, 0x73, 0x63, 0x68, 0x69, 0x72, 0x6d, 0x67, 0x72, 0xf6, 0xdf, 0x65, 0x20, 0x75, 0x6e, 0x64, 0x20, 0x57, 0x69, 0x6e, 0x64, 0x6f, 0x77, 0x73, 0x20, 0x4d, 0x65, 0x64, 0x69, 0x61, 0x20, 0x46, 0x6f, 0x75, 0x6e, 0x64, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x2e, 0x0
+start_error_label_2:
+    # Não foi possível iniciar. Verifique o local de gravação, a resolução e o Windows Media Foundation.
+    .short 0x4e, 0xe3, 0x6f, 0x20, 0x66, 0x6f, 0x69, 0x20, 0x70, 0x6f, 0x73, 0x73, 0xed, 0x76, 0x65, 0x6c, 0x20, 0x69, 0x6e, 0x69, 0x63, 0x69, 0x61, 0x72, 0x2e, 0x20, 0x56, 0x65, 0x72, 0x69, 0x66, 0x69, 0x71, 0x75, 0x65, 0x20, 0x6f, 0x20, 0x6c, 0x6f, 0x63, 0x61, 0x6c, 0x20, 0x64, 0x65, 0x20, 0x67, 0x72, 0x61, 0x76, 0x61, 0xe7, 0xe3, 0x6f, 0x2c, 0x20, 0x61, 0x20, 0x72, 0x65, 0x73, 0x6f, 0x6c, 0x75, 0xe7, 0xe3, 0x6f, 0x20, 0x65, 0x20, 0x6f, 0x20, 0x57, 0x69, 0x6e, 0x64, 0x6f, 0x77, 0x73, 0x20, 0x4d, 0x65, 0x64, 0x69, 0x61, 0x20, 0x46, 0x6f, 0x75, 0x6e, 0x64, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x2e, 0x0
+extension_error_label_table:
+    .long extension_error_label_0-extension_error_label_table, extension_error_label_1-extension_error_label_table, extension_error_label_2-extension_error_label_table
+extension_error_label_0:
+    .string16 "Choose a filename ending in .mp4."
+extension_error_label_1:
+    # Wählen Sie einen Dateinamen mit der Endung .mp4.
+    .short 0x57, 0xe4, 0x68, 0x6c, 0x65, 0x6e, 0x20, 0x53, 0x69, 0x65, 0x20, 0x65, 0x69, 0x6e, 0x65, 0x6e, 0x20, 0x44, 0x61, 0x74, 0x65, 0x69, 0x6e, 0x61, 0x6d, 0x65, 0x6e, 0x20, 0x6d, 0x69, 0x74, 0x20, 0x64, 0x65, 0x72, 0x20, 0x45, 0x6e, 0x64, 0x75, 0x6e, 0x67, 0x20, 0x2e, 0x6d, 0x70, 0x34, 0x2e, 0x0
+extension_error_label_2:
+    .string16 "Escolha um nome de ficheiro que termine em .mp4."
+save_error_label_table:
+    .long save_error_label_0-save_error_label_table, save_error_label_1-save_error_label_table, save_error_label_2-save_error_label_table
+save_error_label_0:
+    .string16 "Could not finalize the MP4. Check your available disk space."
+save_error_label_1:
+    # MP4 konnte nicht fertiggestellt werden. Prüfen Sie den freien Speicherplatz.
+    .short 0x4d, 0x50, 0x34, 0x20, 0x6b, 0x6f, 0x6e, 0x6e, 0x74, 0x65, 0x20, 0x6e, 0x69, 0x63, 0x68, 0x74, 0x20, 0x66, 0x65, 0x72, 0x74, 0x69, 0x67, 0x67, 0x65, 0x73, 0x74, 0x65, 0x6c, 0x6c, 0x74, 0x20, 0x77, 0x65, 0x72, 0x64, 0x65, 0x6e, 0x2e, 0x20, 0x50, 0x72, 0xfc, 0x66, 0x65, 0x6e, 0x20, 0x53, 0x69, 0x65, 0x20, 0x64, 0x65, 0x6e, 0x20, 0x66, 0x72, 0x65, 0x69, 0x65, 0x6e, 0x20, 0x53, 0x70, 0x65, 0x69, 0x63, 0x68, 0x65, 0x72, 0x70, 0x6c, 0x61, 0x74, 0x7a, 0x2e, 0x0
+save_error_label_2:
+    # Não foi possível finalizar o MP4. Verifique o espaço livre no disco.
+    .short 0x4e, 0xe3, 0x6f, 0x20, 0x66, 0x6f, 0x69, 0x20, 0x70, 0x6f, 0x73, 0x73, 0xed, 0x76, 0x65, 0x6c, 0x20, 0x66, 0x69, 0x6e, 0x61, 0x6c, 0x69, 0x7a, 0x61, 0x72, 0x20, 0x6f, 0x20, 0x4d, 0x50, 0x34, 0x2e, 0x20, 0x56, 0x65, 0x72, 0x69, 0x66, 0x69, 0x71, 0x75, 0x65, 0x20, 0x6f, 0x20, 0x65, 0x73, 0x70, 0x61, 0xe7, 0x6f, 0x20, 0x6c, 0x69, 0x76, 0x72, 0x65, 0x20, 0x6e, 0x6f, 0x20, 0x64, 0x69, 0x73, 0x63, 0x6f, 0x2e, 0x0
+filter_table:
+    .long filter_0-filter_table, filter_1-filter_table, filter_2-filter_table
+filter_0:
+    .string16 "MP4 video (*.mp4)\000*.mp4\000"
+filter_1:
+    .string16 "MP4-Video (*.mp4)\000*.mp4\000"
+filter_2:
+    # Vídeo MP4 (*.mp4) *.mp4
+    .short 0x56, 0xed, 0x64, 0x65, 0x6f, 0x20, 0x4d, 0x50, 0x34, 0x20, 0x28, 0x2a, 0x2e, 0x6d, 0x70, 0x34, 0x29, 0x0, 0x2a, 0x2e, 0x6d, 0x70, 0x34, 0x0, 0x0
+countdown_label_table:
+    .long countdown_label_0-countdown_label_table, countdown_label_1-countdown_label_table, countdown_label_2-countdown_label_table
 extension: utf16 "mp4"
 default_name: utf16 "Recording.mp4"
 temp_prefix: utf16 "REC"
@@ -971,8 +1199,8 @@ hint_\name:
         .asciz "\name"
     .endr
 .endm
-imports KERNEL32, ExitProcess, GetModuleHandleW, GetTickCount64, GetTempFileNameW, lstrcpyW, MoveFileExW, DeleteFileW
-imports USER32, SetProcessDpiAwarenessContext, DialogBoxIndirectParamW, EndDialog, GetSystemMetrics, GetDC, ReleaseDC, SetTimer, KillTimer, SetDlgItemTextW, MessageBoxW, ShowWindow, RegisterHotKey, UnregisterHotKey
+imports KERNEL32, ExitProcess, GetModuleHandleW, GetTickCount64, GetUserDefaultUILanguage, GetTempFileNameW, lstrcpyW, MoveFileExW, DeleteFileW
+imports USER32, SetProcessDpiAwarenessContext, DialogBoxIndirectParamW, EndDialog, GetSystemMetrics, GetDC, ReleaseDC, SetTimer, KillTimer, SetDlgItemTextW, SendDlgItemMessageW, SetWindowTextW, MessageBoxW, ShowWindow, RegisterHotKey, UnregisterHotKey
 imports GDI32, CreateCompatibleDC, CreateDIBSection, SelectObject, BitBlt, PatBlt, GdiFlush, DeleteObject, DeleteDC
 imports COMDLG32, GetSaveFileNameW, CommDlgExtendedError
 imports OLE32, CoInitializeEx, CoUninitialize
