@@ -15,6 +15,10 @@ Choose **English**, **Deutsch**, or **Português** in the drop-down. The app sta
 
 The capture code supports primary display dimensions up to 4096 pixels per side. Actual capture rate depends on the display, system load, and encoder. Windows editions without Media Foundation need the relevant Windows media components.
 
+## Take a screenshot
+
+While the recorder is idle, click **Screenshot and save…**. The app hides its window, captures the primary display, and opens a save dialog for the BMP image.
+
 ## Support
 
 Recording and saving are free. You can support the project on the developer’s [bunq.me page](https://bunq.me/JMLealRuivo). Any contribution is optional, and available payment amounts depend on bunq and the payment method.

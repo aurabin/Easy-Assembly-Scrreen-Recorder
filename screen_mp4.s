@@ -71,6 +71,8 @@ dialog_proc:
 .command:
     cmp r8w, 2
     je .close
+    cmp r8w, 103
+    je .screenshot
     cmp r8w, 102
     je .language_changed
     cmp r8w, 100
@@ -83,6 +85,11 @@ dialog_proc:
     test eax, eax
     jnz .handled
     call start_countdown
+    jmp .handled
+.screenshot:
+    cmp dword ptr [rip+state], 0
+    jne .handled
+    call save_screenshot
     jmp .handled
 .language_changed:
     shr r8d, 16
@@ -277,6 +284,9 @@ change_language:
     mov rcx, [rip+window]
     localized rdx, title
     api SetWindowTextW
+    localized r8, screenshot_label
+    mov edx, 103
+    call set_control
     cmp dword ptr [rip+state], 1
     je .language_countdown
     cmp dword ptr [rip+state], 2
@@ -312,6 +322,7 @@ show_recording:
 
 begin_recording:
     sub rsp, 72
+    xor ecx, ecx
     call prepare_capture
     test eax, eax
     jz .begin_failed
@@ -354,8 +365,195 @@ begin_recording:
     add rsp, 72
     ret
 
+capture_display:
+    sub rsp, 72
+    mov rcx, [rip+memory_dc]
+    xor edx, edx
+    xor r8d, r8d
+    mov r9d, [rip+width]
+    mov eax, [rip+height]
+    mov [rsp+32], eax
+    mov rax, [rip+screen_dc]
+    mov [rsp+40], rax
+    mov dword ptr [rsp+48], 0
+    mov dword ptr [rsp+56], 0
+    mov dword ptr [rsp+64], 0x40cc0020
+    api BitBlt
+    test eax, eax
+    jz .blit_return
+    api GdiFlush
+.blit_return:
+    add rsp, 72
+    ret
+
+reserve_temp_file:
+    sub rsp, 40
+    # Use a temporary file beside the final destination to preserve an
+    # existing MP4 until encoding and finalization both succeed.
+    address rcx, directory
+    address rdx, path
+    api lstrcpyW
+    address rdx, directory
+    xor ecx, ecx
+.scan_directory:
+    mov ax, [rdx]
+    test ax, ax
+    jz .directory_end
+    add rdx, 2
+    cmp ax, 92
+    cmove rcx, rdx
+    jmp .scan_directory
+.directory_end:
+    test rcx, rcx
+    jz .temp_failed
+    mov word ptr [rcx], 0
+    address rcx, directory
+    address rdx, temp_prefix
+    xor r8d, r8d
+    address r9, temp_path
+    api GetTempFileNameW
+    test eax, eax
+    jz .temp_failed
+    mov byte ptr [rip+temp_exists], 1
+    mov eax, 1
+    jmp .temp_return
+.temp_failed:
+    xor eax, eax
+.temp_return:
+    add rsp, 40
+    ret
+
+
+save_screenshot:
+    sub rsp, 40
+    mov dword ptr [rip+state], 3
+    mov rcx, [rip+window]
+    xor edx, edx                # SW_HIDE
+    api ShowWindow
+    api DwmFlush
+    mov ecx, 1                  # Capture at the exact display dimensions
+    call prepare_capture
+    test eax, eax
+    jz .screenshot_capture_failed
+    call capture_display
+    test eax, eax
+    jz .screenshot_capture_failed
+    call restore_window
+
+    mov rax, [rip+window]
+    mov [rip+save_owner], rax
+    address rax, path
+    mov [rip+save_path], rax
+    address rax, bitmap_filter
+    mov [rip+save_filter], rax
+    address rax, bitmap_extension
+    mov [rip+save_extension], rax
+    address rcx, path
+    address rdx, bitmap_name
+    api lstrcpyW
+    mov dword ptr [rip+save_flags], 0x880e
+    address rcx, save_dialog
+    api GetSaveFileNameW
+    test eax, eax
+    jnz .screenshot_path
+    api CommDlgExtendedError
+    test eax, eax
+    jnz .screenshot_save_failed
+    jmp .screenshot_done
+.screenshot_path:
+    test dword ptr [rip+save_flags], 0x400
+    jnz .screenshot_save_failed
+    call save_bitmap
+    test eax, eax
+    jz .screenshot_save_failed
+    localized r8, screenshot_saved
+    call set_status
+    jmp .screenshot_done
+.screenshot_capture_failed:
+    call restore_window
+.screenshot_save_failed:
+    localized rdx, screenshot_error
+    call error_message
+.screenshot_done:
+    call release_capture
+    mov dword ptr [rip+state], 0
+    add rsp, 40
+    ret
+
+save_bitmap:
+    sub rsp, 88
+    call reserve_temp_file
+    test eax, eax
+    jz .bitmap_return
+    mov eax, [rip+luma_size]
+    shl eax, 2
+    mov [rip+bitmap_bytes], eax
+    add eax, 54
+    mov [rip+bmp_file_size], eax
+    mov eax, [rip+width]
+    mov [rip+bmp_width], eax
+    mov eax, [rip+bitmap_height]
+    mov [rip+bmp_height], eax
+
+    address rcx, temp_path
+    mov edx, 0x40000000         # GENERIC_WRITE
+    xor r8d, r8d
+    xor r9d, r9d
+    mov qword ptr [rsp+32], 2    # CREATE_ALWAYS
+    mov qword ptr [rsp+40], 0x80 # FILE_ATTRIBUTE_NORMAL
+    mov qword ptr [rsp+48], 0
+    api CreateFileW
+    cmp rax, -1
+    je .bitmap_failed
+    mov [rsp+56], rax
+    mov dword ptr [rsp+68], 0
+
+    mov rcx, rax
+    address rdx, bmp_header
+    mov r8d, 54
+    lea r9, [rsp+64]
+    mov qword ptr [rsp+32], 0
+    api WriteFile
+    test eax, eax
+    jz .bitmap_close
+    cmp dword ptr [rsp+64], 54
+    jne .bitmap_close
+    mov rcx, [rsp+56]
+    mov rdx, [rip+pixels]
+    mov r8d, [rip+bitmap_bytes]
+    lea r9, [rsp+64]
+    mov qword ptr [rsp+32], 0
+    api WriteFile
+    test eax, eax
+    jz .bitmap_close
+    mov eax, [rsp+64]
+    cmp eax, [rip+bitmap_bytes]
+    sete byte ptr [rsp+68]
+.bitmap_close:
+    mov rcx, [rsp+56]
+    api CloseHandle
+    test eax, eax
+    jz .bitmap_failed
+    cmp byte ptr [rsp+68], 0
+    je .bitmap_failed
+    address rcx, temp_path
+    address rdx, path
+    mov r8d, 9                  # REPLACE_EXISTING | WRITE_THROUGH
+    api MoveFileExW
+    test eax, eax
+    jz .bitmap_failed
+    mov byte ptr [rip+temp_exists], 0
+    jmp .bitmap_return
+.bitmap_failed:
+    call discard_temp
+    xor eax, eax
+.bitmap_return:
+    add rsp, 88
+    ret
+
 prepare_capture:
     sub rsp, 56
+    mov [rsp+48], ecx
     xor ecx, ecx
     api GetSystemMetrics
     test eax, eax
@@ -365,6 +563,8 @@ prepare_capture:
     mov [rip+width], eax
     add eax, 3
     and eax, -4
+    cmp dword ptr [rsp+48], 0
+    cmovne eax, [rip+width]
     mov [rip+encoded_width], eax
     mov [rip+bitmap_width], eax
     mov ecx, 1
@@ -376,6 +576,8 @@ prepare_capture:
     mov [rip+height], eax
     add eax, 1
     and eax, -2
+    cmp dword ptr [rsp+48], 0
+    cmovne eax, [rip+height]
     mov [rip+encoded_height], eax
     neg eax
     mov [rip+bitmap_height], eax
@@ -434,33 +636,9 @@ prepare_writer:
     check .writer_return
     mov byte ptr [rip+mf_started], 1
 
-    # Use a temporary file beside the final destination to preserve an
-    # existing MP4 until encoding and finalization both succeed.
-    address rcx, directory
-    address rdx, path
-    api lstrcpyW
-    address rdx, directory
-    xor ecx, ecx
-.scan_directory:
-    mov ax, [rdx]
-    test ax, ax
-    jz .directory_end
-    add rdx, 2
-    cmp ax, 92
-    cmove rcx, rdx
-    jmp .scan_directory
-.directory_end:
-    test rcx, rcx
-    jz .writer_error
-    mov word ptr [rcx], 0
-    address rcx, directory
-    address rdx, temp_prefix
-    xor r8d, r8d
-    address r9, temp_path
-    api GetTempFileNameW
+    call reserve_temp_file
     test eax, eax
     jz .writer_error
-    mov byte ptr [rip+temp_exists], 1
 
     address rcx, attributes
     mov edx, 1
@@ -573,21 +751,7 @@ record_tick:
     mov rax, [rsp+72]
     mov [rip+next_slot], rax
 .blit:
-    mov rcx, [rip+memory_dc]
-    xor edx, edx
-    xor r8d, r8d
-    mov r9d, [rip+width]
-    mov eax, [rip+height]
-    mov [rsp+32], eax
-    mov rax, [rip+screen_dc]
-    mov [rsp+40], rax
-    mov dword ptr [rsp+48], 0
-    mov dword ptr [rsp+56], 0
-    mov dword ptr [rsp+64], 0x40cc0020
-    api BitBlt
-    test eax, eax
-    jz .record_error
-    api GdiFlush
+    call capture_display
     test eax, eax
     jz .record_error
     call make_frame_buffer
@@ -943,6 +1107,18 @@ bitmap_height: .long 0
     .short 1, 32
     .long 0, 0, 0, 0, 0, 0
 
+# BITMAPFILEHEADER and BITMAPINFOHEADER for a top-down 32-bit BMP.
+bmp_header:
+    .ascii "BM"
+bmp_file_size: .long 0
+    .long 0, 54, 40
+bmp_width: .long 0
+bmp_height: .long 0
+    .short 1, 32
+    .long 0
+bitmap_bytes: .long 0
+    .long 0, 0, 0, 0
+
 .balign 8
 save_dialog:
     .long 152, 0
@@ -1015,7 +1191,7 @@ guid subtype_nv12, 0x3231564e, 0, 0x0010, 0x80,0,0,0xaa,0,0x38,0x9b,0x71
 .balign 4
 dialog:
     .long 0x90ca00c0, 0x00040000
-    .short 3, 0, 0, 260, 76
+    .short 4, 0, 0, 260, 103
     .short 0, 0
     utf16 "Screen Recorder"
     .short 9
@@ -1031,6 +1207,10 @@ dialog:
     .balign 4
     .long 0x50210003, 0          # CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
     .short 157, 40, 93, 67, 102, 0xffff, 0x85
+    .short 0, 0
+    .balign 4
+    .long 0x50010000, 0
+    .short 10, 68, 135, 22, 103, 0xffff, 0x80
     .short 0, 0
 language_names:
     .long english-language_names, german-language_names, portuguese-language_names
@@ -1167,6 +1347,35 @@ filter_2:
     .short 0x56, 0xed, 0x64, 0x65, 0x6f, 0x20, 0x4d, 0x50, 0x34, 0x20, 0x28, 0x2a, 0x2e, 0x6d, 0x70, 0x34, 0x29, 0x0, 0x2a, 0x2e, 0x6d, 0x70, 0x34, 0x0, 0x0
 countdown_label_table:
     .long countdown_label_0-countdown_label_table, countdown_label_1-countdown_label_table, countdown_label_2-countdown_label_table
+bitmap_filter: utf16 "BMP (*.bmp)\000*.bmp\000"
+bitmap_extension: utf16 "bmp"
+bitmap_name: utf16 "Screenshot.bmp"
+screenshot_label_table:
+    .long screenshot_label_0-screenshot_label_table, screenshot_label_1-screenshot_label_table, screenshot_label_2-screenshot_label_table
+screenshot_label_0:
+    .string16 "Screenshot and save..."
+screenshot_label_1:
+    .string16 "Screenshot speichern..."
+screenshot_label_2:
+    .string16 "Guardar captura..."
+screenshot_saved_table:
+    .long screenshot_saved_0-screenshot_saved_table, screenshot_saved_1-screenshot_saved_table, screenshot_saved_2-screenshot_saved_table
+screenshot_saved_0:
+    .string16 "Screenshot saved."
+screenshot_saved_1:
+    .string16 "Screenshot gespeichert."
+screenshot_saved_2:
+    .string16 "Captura guardada."
+screenshot_error_table:
+    .long screenshot_error_0-screenshot_error_table, screenshot_error_1-screenshot_error_table, screenshot_error_2-screenshot_error_table
+screenshot_error_0:
+    .string16 "Could not capture or save the screenshot. Choose a writable .bmp path."
+screenshot_error_1:
+    # Screenshot konnte nicht erstellt oder gespeichert werden. Wählen Sie einen beschreibbaren .bmp-Pfad.
+    .short 0x53, 0x63, 0x72, 0x65, 0x65, 0x6e, 0x73, 0x68, 0x6f, 0x74, 0x20, 0x6b, 0x6f, 0x6e, 0x6e, 0x74, 0x65, 0x20, 0x6e, 0x69, 0x63, 0x68, 0x74, 0x20, 0x65, 0x72, 0x73, 0x74, 0x65, 0x6c, 0x6c, 0x74, 0x20, 0x6f, 0x64, 0x65, 0x72, 0x20, 0x67, 0x65, 0x73, 0x70, 0x65, 0x69, 0x63, 0x68, 0x65, 0x72, 0x74, 0x20, 0x77, 0x65, 0x72, 0x64, 0x65, 0x6e, 0x2e, 0x20, 0x57, 0xe4, 0x68, 0x6c, 0x65, 0x6e, 0x20, 0x53, 0x69, 0x65, 0x20, 0x65, 0x69, 0x6e, 0x65, 0x6e, 0x20, 0x62, 0x65, 0x73, 0x63, 0x68, 0x72, 0x65, 0x69, 0x62, 0x62, 0x61, 0x72, 0x65, 0x6e, 0x20, 0x2e, 0x62, 0x6d, 0x70, 0x2d, 0x50, 0x66, 0x61, 0x64, 0x2e, 0x0
+screenshot_error_2:
+    # Não foi possível criar ou guardar a captura. Escolha um caminho .bmp com permissão de escrita.
+    .short 0x4e, 0xe3, 0x6f, 0x20, 0x66, 0x6f, 0x69, 0x20, 0x70, 0x6f, 0x73, 0x73, 0xed, 0x76, 0x65, 0x6c, 0x20, 0x63, 0x72, 0x69, 0x61, 0x72, 0x20, 0x6f, 0x75, 0x20, 0x67, 0x75, 0x61, 0x72, 0x64, 0x61, 0x72, 0x20, 0x61, 0x20, 0x63, 0x61, 0x70, 0x74, 0x75, 0x72, 0x61, 0x2e, 0x20, 0x45, 0x73, 0x63, 0x6f, 0x6c, 0x68, 0x61, 0x20, 0x75, 0x6d, 0x20, 0x63, 0x61, 0x6d, 0x69, 0x6e, 0x68, 0x6f, 0x20, 0x2e, 0x62, 0x6d, 0x70, 0x20, 0x63, 0x6f, 0x6d, 0x20, 0x70, 0x65, 0x72, 0x6d, 0x69, 0x73, 0x73, 0xe3, 0x6f, 0x20, 0x64, 0x65, 0x20, 0x65, 0x73, 0x63, 0x72, 0x69, 0x74, 0x61, 0x2e, 0x0
 extension: utf16 "mp4"
 default_name: utf16 "Recording.mp4"
 temp_prefix: utf16 "REC"
@@ -1199,7 +1408,7 @@ hint_\name:
         .asciz "\name"
     .endr
 .endm
-imports KERNEL32, ExitProcess, GetModuleHandleW, GetTickCount64, GetUserDefaultUILanguage, GetTempFileNameW, lstrcpyW, MoveFileExW, DeleteFileW
+imports KERNEL32, ExitProcess, GetModuleHandleW, GetTickCount64, GetUserDefaultUILanguage, GetTempFileNameW, lstrcpyW, MoveFileExW, DeleteFileW, CreateFileW, WriteFile, CloseHandle
 imports USER32, SetProcessDpiAwarenessContext, DialogBoxIndirectParamW, EndDialog, GetSystemMetrics, GetDC, ReleaseDC, SetTimer, KillTimer, SetDlgItemTextW, SendDlgItemMessageW, SetWindowTextW, MessageBoxW, ShowWindow, RegisterHotKey, UnregisterHotKey
 imports GDI32, CreateCompatibleDC, CreateDIBSection, SelectObject, BitBlt, PatBlt, GdiFlush, DeleteObject, DeleteDC
 imports COMDLG32, GetSaveFileNameW, CommDlgExtendedError
