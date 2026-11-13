@@ -9,15 +9,15 @@ A small x86-64 assembly screen recorder for 64-bit Windows 10 (version 1703 or l
 Choose **English**, **Deutsch**, or **Português** in the drop-down. The app starts in the Windows display language when it is supported and uses English otherwise.
 
 1. Run **ScreenRecorder.exe**.
-2. Click **Start recording…** and choose an MP4 destination.
+2. Click **Record** and choose an MP4 destination.
 3. The window minimizes when the 15-second countdown ends.
-4. Press **Ctrl+Shift+F10** to finish and save. You can also restore the recorder and click **Stop and save**.
+4. Press **Ctrl+Shift+F10** to finish and save. You can also restore the recorder and click **Stop**.
 
 The capture code supports primary display dimensions up to 4096 pixels per side. Actual capture rate depends on the display, system load, and encoder. Windows editions without Media Foundation need the relevant Windows media components.
 
 ## Take a screenshot
 
-While the recorder is idle, click **Screenshot and save…**. The app hides its window, captures the primary display, and opens a save dialog for the BMP image.
+While the recorder is idle, click **Screenshot and save…**. The app hides its window, captures the primary display, and opens a save dialog for BMP, PNG, or JPEG.
 
 ## Support
 

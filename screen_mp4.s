@@ -71,6 +71,8 @@ dialog_proc:
 .command:
     cmp r8w, 2
     je .close
+    cmp r8w, 104
+    je .stop_button
     cmp r8w, 103
     je .screenshot
     cmp r8w, 102
@@ -78,13 +80,15 @@ dialog_proc:
     cmp r8w, 100
     jne .handled
     mov eax, [rip+state]
-    cmp eax, 1
-    je .cancel
-    cmp eax, 2
-    je .stop
     test eax, eax
     jnz .handled
     call start_countdown
+    jmp .handled
+.stop_button:
+    cmp dword ptr [rip+state], 1
+    je .cancel
+    cmp dword ptr [rip+state], 2
+    je .stop
     jmp .handled
 .screenshot:
     cmp dword ptr [rip+state], 0
@@ -153,6 +157,7 @@ start_countdown:
     address rcx, path
     address rdx, default_name
     api lstrcpyW
+    mov dword ptr [rip+save_filter_index], 1
     mov dword ptr [rip+save_flags], 0x880e
     address rcx, save_dialog
     api GetSaveFileNameW
@@ -172,8 +177,6 @@ start_countdown:
     mov [rip+deadline], rax
     mov dword ptr [rip+seconds_shown], 0
     mov dword ptr [rip+state], 1
-    localized r8, cancel_label
-    call set_button
     call countdown_tick
     jmp .countdown_return
 .dialog_closed:
@@ -284,6 +287,11 @@ change_language:
     mov rcx, [rip+window]
     localized rdx, title
     api SetWindowTextW
+    localized r8, stop_label
+    mov edx, 104
+    call set_control
+    localized r8, start_label
+    call set_button
     localized r8, screenshot_label
     mov edx, 103
     call set_control
@@ -291,14 +299,10 @@ change_language:
     je .language_countdown
     cmp dword ptr [rip+state], 2
     je .language_recording
-    localized r8, start_label
-    call set_button
     localized r8, ready_label
     call set_status
     jmp .language_return
 .language_countdown:
-    localized r8, cancel_label
-    call set_button
     call show_countdown
     jmp .language_return
 .language_recording:
@@ -309,8 +313,6 @@ change_language:
 
 show_recording:
     sub rsp, 40
-    localized r8, stop_label
-    call set_button
     localized r8, recording_label
     cmp dword ptr [rip+hotkey_active], 0
     jne .recording_status
@@ -446,11 +448,12 @@ save_screenshot:
     mov [rip+save_path], rax
     address rax, bitmap_filter
     mov [rip+save_filter], rax
-    address rax, bitmap_extension
+    address rax, image_default_extension
     mov [rip+save_extension], rax
     address rcx, path
     address rdx, bitmap_name
     api lstrcpyW
+    mov dword ptr [rip+save_filter_index], 1
     mov dword ptr [rip+save_flags], 0x880e
     address rcx, save_dialog
     api GetSaveFileNameW
@@ -461,13 +464,25 @@ save_screenshot:
     jnz .screenshot_save_failed
     jmp .screenshot_done
 .screenshot_path:
-    test dword ptr [rip+save_flags], 0x400
-    jnz .screenshot_save_failed
+    call screenshot_format
+    test eax, eax
+    jz .screenshot_extension_failed
+    cmp eax, 1
+    jne .screenshot_compressed
     call save_bitmap
+    jmp .screenshot_check
+.screenshot_compressed:
+    mov ecx, eax
+    call save_compressed_image
+.screenshot_check:
     test eax, eax
     jz .screenshot_save_failed
     localized r8, screenshot_saved
     call set_status
+    jmp .screenshot_done
+.screenshot_extension_failed:
+    localized rdx, screenshot_extension_error
+    call error_message
     jmp .screenshot_done
 .screenshot_capture_failed:
     call restore_window
@@ -478,6 +493,140 @@ save_screenshot:
     call release_capture
     mov dword ptr [rip+state], 0
     add rsp, 40
+    ret
+
+# Return 1 for BMP, 2 for PNG, 3 for JPEG, and zero for an invalid
+# extension. If the dialog supplies no extension, append the selected
+# one and require a new file, since overwrite was not confirmed.
+screenshot_format:
+    mov dword ptr [rip+image_move_flags], 9
+    address r10, path
+    movzx ecx, word ptr [rip+save_file_extension]
+    test ecx, ecx
+    jz .image_no_extension
+    cmp ecx, 259
+    ja .image_invalid
+    lea r11, [r10+rcx*2]
+    cmp word ptr [r11], 0
+    je .image_no_extension
+    cmp ecx, 256
+    ja .image_invalid
+    cmp word ptr [r11-2], '.'
+    jne .image_invalid
+    mov rax, [r11]
+    mov rdx, 0x002000200020
+    or rax, rdx
+    mov rdx, 0x0070006d0062
+    cmp rax, rdx
+    je .image_bmp
+    mov rdx, 0x0067006e0070
+    cmp rax, rdx
+    je .image_png
+    mov rdx, 0x00670070006a
+    cmp rax, rdx
+    je .image_jpeg
+    mov rdx, 0x006700650070006a
+    mov r8, 0x0020002000200020
+    or rax, r8
+    cmp rax, rdx
+    jne .image_invalid
+    cmp ecx, 255
+    ja .image_invalid
+    cmp word ptr [r11+8], 0
+    jne .image_invalid
+.image_jpeg:
+    mov eax, 3
+    jmp .image_validate_filter
+.image_png:
+    mov eax, 2
+    jmp .image_validate_filter
+.image_bmp:
+    mov eax, 1
+.image_validate_filter:
+    cmp eax, [rip+save_filter_index]
+    jne .image_invalid
+    ret
+.image_no_extension:
+    xor ecx, ecx
+.image_find_end:
+    cmp word ptr [r10+rcx*2], 0
+    je .image_append
+    inc ecx
+    cmp ecx, 260
+    jb .image_find_end
+    jmp .image_invalid
+.image_append:
+    cmp ecx, 255
+    ja .image_invalid
+    lea r11, [r10+rcx*2]
+    cmp ecx, 0
+    je .image_invalid
+    cmp word ptr [r11-2], '.'
+    jne .image_append_type
+    sub r11, 2
+.image_append_type:
+    mov eax, [rip+save_filter_index]
+    lea edx, [rax-1]
+    cmp edx, 2
+    ja .image_invalid
+    address rcx, image_suffixes
+    mov rdx, [rcx+rdx*8]
+    mov [r11], rdx
+    mov word ptr [r11+8], 0
+    mov dword ptr [rip+image_move_flags], 8
+    ret
+.image_invalid:
+    xor eax, eax
+    ret
+
+save_compressed_image:
+    sub rsp, 88
+    mov [rsp+72], ecx
+    call reserve_temp_file
+    test eax, eax
+    jz .compressed_return
+    lea rcx, [rsp+56]           # ULONG_PTR startup token
+    address rdx, gdiplus_input
+    xor r8d, r8d
+    api GdiplusStartup
+    test eax, eax
+    jnz .compressed_failed
+    mov dword ptr [rsp+76], 0
+    mov ecx, [rip+width]
+    mov edx, [rip+height]
+    lea r8d, [rcx*4]
+    mov r9d, 0x22009            # PixelFormat32bppRGB (BGRX)
+    mov rax, [rip+pixels]
+    mov [rsp+32], rax
+    lea rax, [rsp+64]
+    mov [rsp+40], rax
+    api GdipCreateBitmapFromScan0
+    test eax, eax
+    jnz .compressed_shutdown
+    mov rcx, [rsp+64]
+    address rdx, temp_path
+    address r8, png_encoder
+    address rax, jpeg_encoder
+    cmp dword ptr [rsp+72], 3
+    cmove r8, rax
+    xor r9d, r9d
+    api GdipSaveImageToFile
+    test eax, eax
+    setz byte ptr [rsp+76]
+    mov rcx, [rsp+64]
+    api GdipDisposeImage
+.compressed_shutdown:
+    mov rcx, [rsp+56]
+    api GdiplusShutdown
+    cmp byte ptr [rsp+76], 0
+    je .compressed_failed
+    call finish_image_file
+    jmp .compressed_return
+.compressed_failed:
+    call discard_temp
+    xor eax, eax
+.compressed_return:
+    add rsp, 88
     ret
 
 save_bitmap:
@@ -536,19 +685,30 @@ save_bitmap:
     jz .bitmap_failed
     cmp byte ptr [rsp+68], 0
     je .bitmap_failed
-    address rcx, temp_path
-    address rdx, path
-    mov r8d, 9                  # REPLACE_EXISTING | WRITE_THROUGH
-    api MoveFileExW
-    test eax, eax
-    jz .bitmap_failed
-    mov byte ptr [rip+temp_exists], 0
+    call finish_image_file
     jmp .bitmap_return
 .bitmap_failed:
     call discard_temp
     xor eax, eax
 .bitmap_return:
     add rsp, 88
+    ret
+
+finish_image_file:
+    sub rsp, 40
+    address rcx, temp_path
+    address rdx, path
+    mov r8d, [rip+image_move_flags]
+    api MoveFileExW
+    test eax, eax
+    jz .image_move_failed
+    mov byte ptr [rip+temp_exists], 0
+    jmp .image_move_return
+.image_move_failed:
+    call discard_temp
+    xor eax, eax
+.image_move_return:
+    add rsp, 40
     ret
 
 prepare_capture:
@@ -1085,6 +1245,7 @@ record_start: .quad 0
 next_slot: .quad 0
 state: .long 0
 language: .long 0
+image_move_flags: .long 9
 frames: .long 0
 stream_index: .long 0
 seconds_shown: .long 0
@@ -1126,14 +1287,16 @@ save_owner: .quad 0
     .quad 0
 save_filter: .quad 0
     .quad 0
-    .long 0, 1
+    .long 0
+save_filter_index: .long 1
 save_path: .quad 0
     .long 260, 0
     .quad 0
     .long 0, 0
     .quad 0, 0
 save_flags: .long 0x880e
-    .short 0, 0
+    .short 0
+save_file_extension: .short 0
 save_extension: .quad 0
     .quad 0, 0, 0, 0
     .long 0, 0
@@ -1191,7 +1354,7 @@ guid subtype_nv12, 0x3231564e, 0, 0x0010, 0x80,0,0,0xaa,0,0x38,0x9b,0x71
 .balign 4
 dialog:
     .long 0x90ca00c0, 0x00040000
-    .short 4, 0, 0, 260, 103
+    .short 5, 0, 0, 260, 103
     .short 0, 0
     utf16 "Screen Recorder"
     .short 9
@@ -1202,7 +1365,7 @@ dialog:
     .short 0, 0
     .balign 4
     .long 0x50010000, 0
-    .short 10, 39, 135, 22, 100, 0xffff, 0x80
+    .short 10, 39, 73, 22, 100, 0xffff, 0x80
     .short 0, 0
     .balign 4
     .long 0x50210003, 0          # CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
@@ -1211,6 +1374,10 @@ dialog:
     .balign 4
     .long 0x50010000, 0
     .short 10, 68, 135, 22, 103, 0xffff, 0x80
+    .short 0, 0
+    .balign 4
+    .long 0x50010000, 0
+    .short 87, 39, 66, 22, 104, 0xffff, 0x80
     .short 0, 0
 language_names:
     .long english-language_names, german-language_names, portuguese-language_names
@@ -1242,28 +1409,18 @@ ready_label_2:
 start_label_table:
     .long start_label_0-start_label_table, start_label_1-start_label_table, start_label_2-start_label_table
 start_label_0:
-    .string16 "Start recording..."
+    .string16 "Record"
 start_label_1:
-    .string16 "Aufnahme starten..."
-start_label_2:
-    # Iniciar gravação...
-    .short 0x49, 0x6e, 0x69, 0x63, 0x69, 0x61, 0x72, 0x20, 0x67, 0x72, 0x61, 0x76, 0x61, 0xe7, 0xe3, 0x6f, 0x2e, 0x2e, 0x2e, 0x0
+    .string16 "Aufnehmen"
+start_label_2: utf16 "Gravar"
 stop_label_table:
     .long stop_label_0-stop_label_table, stop_label_1-stop_label_table, stop_label_2-stop_label_table
 stop_label_0:
-    .string16 "Stop and save"
+    .string16 "Stop"
 stop_label_1:
-    .string16 "Stoppen und speichern"
+    .string16 "Stopp"
 stop_label_2:
-    .string16 "Parar e guardar"
-cancel_label_table:
-    .long cancel_label_0-cancel_label_table, cancel_label_1-cancel_label_table, cancel_label_2-cancel_label_table
-cancel_label_0:
-    .string16 "Cancel countdown"
-cancel_label_1:
-    .string16 "Countdown abbrechen"
-cancel_label_2:
-    .string16 "Cancelar contagem"
+    .string16 "Parar"
 recording_label_table:
     .long recording_label_0-recording_label_table, recording_label_1-recording_label_table, recording_label_2-recording_label_table
 recording_label_0:
@@ -1347,9 +1504,27 @@ filter_2:
     .short 0x56, 0xed, 0x64, 0x65, 0x6f, 0x20, 0x4d, 0x50, 0x34, 0x20, 0x28, 0x2a, 0x2e, 0x6d, 0x70, 0x34, 0x29, 0x0, 0x2a, 0x2e, 0x6d, 0x70, 0x34, 0x0, 0x0
 countdown_label_table:
     .long countdown_label_0-countdown_label_table, countdown_label_1-countdown_label_table, countdown_label_2-countdown_label_table
-bitmap_filter: utf16 "BMP (*.bmp)\000*.bmp\000"
-bitmap_extension: utf16 "bmp"
-bitmap_name: utf16 "Screenshot.bmp"
+bitmap_filter: utf16 "BMP (*.bmp)\000*.bmp\000PNG (*.png)\000*.png\000JPEG (*.jpg;*.jpeg)\000*.jpg;*.jpeg\000"
+image_default_extension: .short 0
+bitmap_name: utf16 "Screenshot"
+image_suffixes:
+    .short '.', 'b', 'm', 'p', '.', 'p', 'n', 'g', '.', 'j', 'p', 'g'
+.balign 8
+gdiplus_input:
+    .long 1, 0
+    .quad 0
+    .long 0, 0
+guid png_encoder, 0x557cf406, 0x1a04, 0x11d3, 0x9a,0x73,0x00,0x00,0xf8,0x1e,0xf3,0x2e
+guid jpeg_encoder, 0x557cf401, 0x1a04, 0x11d3, 0x9a,0x73,0x00,0x00,0xf8,0x1e,0xf3,0x2e
+screenshot_extension_error_table:
+    .long shot_ext_en-screenshot_extension_error_table, shot_ext_de-screenshot_extension_error_table, shot_ext_pt-screenshot_extension_error_table
+shot_ext_en: utf16 "Use a file extension that matches the selected image format."
+shot_ext_de:
+    # Die Dateiendung muss zum ausgewählten Bildformat passen.
+    .short 0x44, 0x69, 0x65, 0x20, 0x44, 0x61, 0x74, 0x65, 0x69, 0x65, 0x6e, 0x64, 0x75, 0x6e, 0x67, 0x20, 0x6d, 0x75, 0x73, 0x73, 0x20, 0x7a, 0x75, 0x6d, 0x20, 0x61, 0x75, 0x73, 0x67, 0x65, 0x77, 0xe4, 0x68, 0x6c, 0x74, 0x65, 0x6e, 0x20, 0x42, 0x69, 0x6c, 0x64, 0x66, 0x6f, 0x72, 0x6d, 0x61, 0x74, 0x20, 0x70, 0x61, 0x73, 0x73, 0x65, 0x6e, 0x2e, 0x0
+shot_ext_pt:
+    # Use uma extensão que corresponda ao formato de imagem selecionado.
+    .short 0x55, 0x73, 0x65, 0x20, 0x75, 0x6d, 0x61, 0x20, 0x65, 0x78, 0x74, 0x65, 0x6e, 0x73, 0xe3, 0x6f, 0x20, 0x71, 0x75, 0x65, 0x20, 0x63, 0x6f, 0x72, 0x72, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x64, 0x61, 0x20, 0x61, 0x6f, 0x20, 0x66, 0x6f, 0x72, 0x6d, 0x61, 0x74, 0x6f, 0x20, 0x64, 0x65, 0x20, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x6d, 0x20, 0x73, 0x65, 0x6c, 0x65, 0x63, 0x69, 0x6f, 0x6e, 0x61, 0x64, 0x6f, 0x2e, 0x0
 screenshot_label_table:
     .long screenshot_label_0-screenshot_label_table, screenshot_label_1-screenshot_label_table, screenshot_label_2-screenshot_label_table
 screenshot_label_0:
@@ -1369,13 +1544,14 @@ screenshot_saved_2:
 screenshot_error_table:
     .long screenshot_error_0-screenshot_error_table, screenshot_error_1-screenshot_error_table, screenshot_error_2-screenshot_error_table
 screenshot_error_0:
-    .string16 "Could not capture or save the screenshot. Choose a writable .bmp path."
+    # Could not capture or save the screenshot. Choose a writable folder.
+    .short 0x43, 0x6f, 0x75, 0x6c, 0x64, 0x20, 0x6e, 0x6f, 0x74, 0x20, 0x63, 0x61, 0x70, 0x74, 0x75, 0x72, 0x65, 0x20, 0x6f, 0x72, 0x20, 0x73, 0x61, 0x76, 0x65, 0x20, 0x74, 0x68, 0x65, 0x20, 0x73, 0x63, 0x72, 0x65, 0x65, 0x6e, 0x73, 0x68, 0x6f, 0x74, 0x2e, 0x20, 0x43, 0x68, 0x6f, 0x6f, 0x73, 0x65, 0x20, 0x61, 0x20, 0x77, 0x72, 0x69, 0x74, 0x61, 0x62, 0x6c, 0x65, 0x20, 0x66, 0x6f, 0x6c, 0x64, 0x65, 0x72, 0x2e, 0x0
 screenshot_error_1:
-    # Screenshot konnte nicht erstellt oder gespeichert werden. Wählen Sie einen beschreibbaren .bmp-Pfad.
-    .short 0x53, 0x63, 0x72, 0x65, 0x65, 0x6e, 0x73, 0x68, 0x6f, 0x74, 0x20, 0x6b, 0x6f, 0x6e, 0x6e, 0x74, 0x65, 0x20, 0x6e, 0x69, 0x63, 0x68, 0x74, 0x20, 0x65, 0x72, 0x73, 0x74, 0x65, 0x6c, 0x6c, 0x74, 0x20, 0x6f, 0x64, 0x65, 0x72, 0x20, 0x67, 0x65, 0x73, 0x70, 0x65, 0x69, 0x63, 0x68, 0x65, 0x72, 0x74, 0x20, 0x77, 0x65, 0x72, 0x64, 0x65, 0x6e, 0x2e, 0x20, 0x57, 0xe4, 0x68, 0x6c, 0x65, 0x6e, 0x20, 0x53, 0x69, 0x65, 0x20, 0x65, 0x69, 0x6e, 0x65, 0x6e, 0x20, 0x62, 0x65, 0x73, 0x63, 0x68, 0x72, 0x65, 0x69, 0x62, 0x62, 0x61, 0x72, 0x65, 0x6e, 0x20, 0x2e, 0x62, 0x6d, 0x70, 0x2d, 0x50, 0x66, 0x61, 0x64, 0x2e, 0x0
+    # Screenshot konnte nicht erstellt oder gespeichert werden. Wählen Sie einen Ordner mit Schreibrechten.
+    .short 0x53, 0x63, 0x72, 0x65, 0x65, 0x6e, 0x73, 0x68, 0x6f, 0x74, 0x20, 0x6b, 0x6f, 0x6e, 0x6e, 0x74, 0x65, 0x20, 0x6e, 0x69, 0x63, 0x68, 0x74, 0x20, 0x65, 0x72, 0x73, 0x74, 0x65, 0x6c, 0x6c, 0x74, 0x20, 0x6f, 0x64, 0x65, 0x72, 0x20, 0x67, 0x65, 0x73, 0x70, 0x65, 0x69, 0x63, 0x68, 0x65, 0x72, 0x74, 0x20, 0x77, 0x65, 0x72, 0x64, 0x65, 0x6e, 0x2e, 0x20, 0x57, 0xe4, 0x68, 0x6c, 0x65, 0x6e, 0x20, 0x53, 0x69, 0x65, 0x20, 0x65, 0x69, 0x6e, 0x65, 0x6e, 0x20, 0x4f, 0x72, 0x64, 0x6e, 0x65, 0x72, 0x20, 0x6d, 0x69, 0x74, 0x20, 0x53, 0x63, 0x68, 0x72, 0x65, 0x69, 0x62, 0x72, 0x65, 0x63, 0x68, 0x74, 0x65, 0x6e, 0x2e, 0x0
 screenshot_error_2:
-    # Não foi possível criar ou guardar a captura. Escolha um caminho .bmp com permissão de escrita.
-    .short 0x4e, 0xe3, 0x6f, 0x20, 0x66, 0x6f, 0x69, 0x20, 0x70, 0x6f, 0x73, 0x73, 0xed, 0x76, 0x65, 0x6c, 0x20, 0x63, 0x72, 0x69, 0x61, 0x72, 0x20, 0x6f, 0x75, 0x20, 0x67, 0x75, 0x61, 0x72, 0x64, 0x61, 0x72, 0x20, 0x61, 0x20, 0x63, 0x61, 0x70, 0x74, 0x75, 0x72, 0x61, 0x2e, 0x20, 0x45, 0x73, 0x63, 0x6f, 0x6c, 0x68, 0x61, 0x20, 0x75, 0x6d, 0x20, 0x63, 0x61, 0x6d, 0x69, 0x6e, 0x68, 0x6f, 0x20, 0x2e, 0x62, 0x6d, 0x70, 0x20, 0x63, 0x6f, 0x6d, 0x20, 0x70, 0x65, 0x72, 0x6d, 0x69, 0x73, 0x73, 0xe3, 0x6f, 0x20, 0x64, 0x65, 0x20, 0x65, 0x73, 0x63, 0x72, 0x69, 0x74, 0x61, 0x2e, 0x0
+    # Não foi possível criar ou guardar a captura. Escolha uma pasta com permissão de escrita.
+    .short 0x4e, 0xe3, 0x6f, 0x20, 0x66, 0x6f, 0x69, 0x20, 0x70, 0x6f, 0x73, 0x73, 0xed, 0x76, 0x65, 0x6c, 0x20, 0x63, 0x72, 0x69, 0x61, 0x72, 0x20, 0x6f, 0x75, 0x20, 0x67, 0x75, 0x61, 0x72, 0x64, 0x61, 0x72, 0x20, 0x61, 0x20, 0x63, 0x61, 0x70, 0x74, 0x75, 0x72, 0x61, 0x2e, 0x20, 0x45, 0x73, 0x63, 0x6f, 0x6c, 0x68, 0x61, 0x20, 0x75, 0x6d, 0x61, 0x20, 0x70, 0x61, 0x73, 0x74, 0x61, 0x20, 0x63, 0x6f, 0x6d, 0x20, 0x70, 0x65, 0x72, 0x6d, 0x69, 0x73, 0x73, 0xe3, 0x6f, 0x20, 0x64, 0x65, 0x20, 0x65, 0x73, 0x63, 0x72, 0x69, 0x74, 0x61, 0x2e, 0x0
 extension: utf16 "mp4"
 default_name: utf16 "Recording.mp4"
 temp_prefix: utf16 "REC"
@@ -1417,3 +1593,4 @@ imports WINMM, timeBeginPeriod, timeEndPeriod
 imports DWMAPI, DwmFlush
 imports MFPLAT, MFStartup, MFShutdown, MFCreateAttributes, MFCreateMediaType, MFCreateMemoryBuffer, MFCreateSample, MFCreateFile
 imports MFREADWRITE, MFCreateSinkWriterFromURL
+imports GDIPLUS, GdiplusStartup, GdiplusShutdown, GdipCreateBitmapFromScan0, GdipSaveImageToFile, GdipDisposeImage
