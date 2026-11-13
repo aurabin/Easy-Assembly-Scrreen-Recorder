@@ -13,6 +13,10 @@ Choose **English**, **Deutsch**, or **Português** in the drop-down. The app sta
 
 The capture code supports primary display dimensions up to 4096 pixels per side. Actual capture rate depends on the display, system load, and encoder. Windows editions without Media Foundation need the relevant Windows media components.
 
+## Support
+
+Recording and saving are free. **Support this project…** opens the developer’s [bunq.me page](https://bunq.me/JMLealRuivo) in your browser. Any contribution is optional, and available payment amounts depend on bunq and the payment method.
+
 ## Build
 
 Use GNU Binutils on x86-64 Linux or WSL. The linker must support the `i386pep` emulation. Run these commands from the project directory.
