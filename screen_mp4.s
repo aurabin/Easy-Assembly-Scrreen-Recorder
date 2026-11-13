@@ -854,6 +854,35 @@ prepare_writer:
     test eax, eax
     jz .writer_error
 
+    # Free bytes available to the current user on the destination volume.
+    address rcx, directory
+    lea rdx, [rsp+40]
+    xor r8d, r8d
+    xor r9d, r9d
+    api GetDiskFreeSpaceExW
+    test eax, eax
+    jz .writer_error
+    mov rax, [rsp+40]
+    cmp rax, 16777216
+    jbe .writer_error
+    sub rax, 16777216
+    xor edx, edx
+    mov ecx, 100
+    div rcx
+    imul rax, 85
+    # Target bitrate / 8 plus 25% overhead. Result is a time estimate.
+    mov ecx, [rip+luma_size]
+    shr ecx, 1
+    mov edx, ecx
+    shr edx, 2
+    add ecx, edx
+    xor edx, edx
+    div rcx
+    test rax, rax
+    jz .writer_error
+    imul rax, 1000
+    mov [rip+record_limit_ms], rax
+
     address rcx, attributes
     mov edx, 1
     api MFCreateAttributes
@@ -952,6 +981,12 @@ record_tick:
     sub rsp, 88
     api GetTickCount64
     sub rax, [rip+record_start]
+    cmp rax, [rip+record_limit_ms]
+    jb .record_time_available
+    xor ecx, ecx
+    call finish_recording
+    jmp .record_return
+.record_time_available:
     imul rax, 30
     xor edx, edx
     mov ecx, 1000
@@ -1298,6 +1333,7 @@ sample: .quad 0
 deadline: .quad 0
 record_start: .quad 0
 next_slot: .quad 0
+record_limit_ms: .quad 0
 state: .long 0
 language: .long 0
 image_move_flags: .long 9
@@ -1649,7 +1685,7 @@ hint_\name:
         .asciz "\name"
     .endr
 .endm
-imports KERNEL32, ExitProcess, GetCurrentThreadId, GetModuleHandleW, GetTickCount64, GetUserDefaultUILanguage, GetTempFileNameW, lstrcpyW, MoveFileExW, DeleteFileW, CreateFileW, WriteFile, CloseHandle
+imports KERNEL32, ExitProcess, GetCurrentThreadId, GetModuleHandleW, GetTickCount64, GetUserDefaultUILanguage, GetTempFileNameW, lstrcpyW, MoveFileExW, DeleteFileW, CreateFileW, WriteFile, CloseHandle, GetDiskFreeSpaceExW
 imports USER32, SetProcessDpiAwarenessContext, DialogBoxIndirectParamW, EndDialog, GetSystemMetrics, GetDC, ReleaseDC, SetTimer, KillTimer, SetDlgItemTextW, SendDlgItemMessageW, SetWindowTextW, MessageBoxW, ShowWindow, RegisterHotKey, UnregisterHotKey, SetWindowsHookExW, UnhookWindowsHookEx, GetAncestor, PostMessageW, CallNextHookEx
 imports GDI32, CreateCompatibleDC, CreateDIBSection, SelectObject, BitBlt, PatBlt, GdiFlush, DeleteObject, DeleteDC
 imports COMDLG32, GetSaveFileNameW, CommDlgExtendedError

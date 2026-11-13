@@ -17,6 +17,8 @@ The capture code supports primary display dimensions up to 4096 pixels per side.
 
 When the recorder window has focus, **Enter** starts recording and **Space** stops it. Restore the window to use Space if it is minimized.
 
+MP4 recording stops automatically at 85% of the estimated time available on the selected drive. The estimate uses the configured video bitrate and reserves space for file finalization.
+
 ## Take a screenshot
 
 While the recorder is idle, click **Screenshot and save…**. The app hides its window, captures the primary display, and opens a save dialog for BMP, PNG, or JPEG.
