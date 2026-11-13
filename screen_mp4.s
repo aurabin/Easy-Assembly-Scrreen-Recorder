@@ -36,6 +36,13 @@ entry:
     mov edx, 2
     api CoInitializeEx
     check .entry_exit
+    api GetCurrentThreadId
+    mov r9d, eax
+    mov ecx, -1                 # WH_MSGFILTER
+    address rdx, key_filter
+    xor r8d, r8d
+    api SetWindowsHookExW
+    mov [rip+keyboard_hook], rax
     xor ecx, ecx
     api GetModuleHandleW
     mov rcx, rax
@@ -44,10 +51,57 @@ entry:
     address r9, dialog_proc
     mov qword ptr [rsp+32], 0
     api DialogBoxIndirectParamW
+    mov rcx, [rip+keyboard_hook]
+    test rcx, rcx
+    jz .uninitialize
+    api UnhookWindowsHookEx
+.uninitialize:
     api CoUninitialize
 .entry_exit:
     xor ecx, ecx
     api ExitProcess
+
+# Scope shortcuts to the recorder dialog, excluding the file dialog.
+key_filter:
+    sub rsp, 72
+    mov [rsp+40], ecx
+    mov [rsp+48], rdx
+    mov [rsp+56], r8
+    cmp ecx, 0                  # MSGF_DIALOGBOX
+    jne .next_filter
+    cmp dword ptr [r8+8], 0x100 # WM_KEYDOWN
+    jne .next_filter
+    mov eax, [r8+16]
+    mov dword ptr [rsp+64], 100
+    cmp eax, 13
+    je .key_target
+    mov dword ptr [rsp+64], 104
+    cmp eax, 32
+    jne .next_filter
+.key_target:
+    mov rcx, [r8]
+    mov edx, 2                  # GA_ROOT
+    api GetAncestor
+    test rax, rax
+    jz .next_filter
+    cmp rax, [rip+window]
+    jne .next_filter
+    mov rcx, rax
+    mov edx, 0x111
+    mov r8d, [rsp+64]
+    xor r9d, r9d
+    api PostMessageW
+    mov eax, 1
+    jmp .key_return
+.next_filter:
+    mov rcx, [rip+keyboard_hook]
+    mov edx, [rsp+40]
+    mov r8, [rsp+48]
+    mov r9, [rsp+56]
+    api CallNextHookEx
+.key_return:
+    add rsp, 72
+    ret
 
 # States: 0 idle, 1 countdown, 2 recording, 3 synchronous transition.
 dialog_proc:
@@ -1229,6 +1283,7 @@ error_message:
 .section .data
 .balign 8
 window: .quad 0
+keyboard_hook: .quad 0
 screen_dc: .quad 0
 memory_dc: .quad 0
 bitmap: .quad 0
@@ -1354,7 +1409,7 @@ guid subtype_nv12, 0x3231564e, 0, 0x0010, 0x80,0,0,0xaa,0,0x38,0x9b,0x71
 .balign 4
 dialog:
     .long 0x90ca00c0, 0x00040000
-    .short 5, 0, 0, 260, 103
+    .short 7, 0, 0, 260, 113
     .short 0, 0
     utf16 "Screen Recorder"
     .short 9
@@ -1373,12 +1428,22 @@ dialog:
     .short 0, 0
     .balign 4
     .long 0x50010000, 0
-    .short 10, 68, 135, 22, 103, 0xffff, 0x80
+    .short 10, 78, 135, 22, 103, 0xffff, 0x80
     .short 0, 0
     .balign 4
     .long 0x50010000, 0
     .short 87, 39, 66, 22, 104, 0xffff, 0x80
     .short 0, 0
+    .balign 4
+    .long 0x50000001, 0
+    .short 10, 62, 73, 12, 105, 0xffff, 0x82
+    utf16 "(Enter)"
+    .short 0
+    .balign 4
+    .long 0x50000001, 0
+    .short 87, 62, 66, 12, 106, 0xffff, 0x82
+    utf16 "(Space)"
+    .short 0
 language_names:
     .long english-language_names, german-language_names, portuguese-language_names
 english:
@@ -1584,8 +1649,8 @@ hint_\name:
         .asciz "\name"
     .endr
 .endm
-imports KERNEL32, ExitProcess, GetModuleHandleW, GetTickCount64, GetUserDefaultUILanguage, GetTempFileNameW, lstrcpyW, MoveFileExW, DeleteFileW, CreateFileW, WriteFile, CloseHandle
-imports USER32, SetProcessDpiAwarenessContext, DialogBoxIndirectParamW, EndDialog, GetSystemMetrics, GetDC, ReleaseDC, SetTimer, KillTimer, SetDlgItemTextW, SendDlgItemMessageW, SetWindowTextW, MessageBoxW, ShowWindow, RegisterHotKey, UnregisterHotKey
+imports KERNEL32, ExitProcess, GetCurrentThreadId, GetModuleHandleW, GetTickCount64, GetUserDefaultUILanguage, GetTempFileNameW, lstrcpyW, MoveFileExW, DeleteFileW, CreateFileW, WriteFile, CloseHandle
+imports USER32, SetProcessDpiAwarenessContext, DialogBoxIndirectParamW, EndDialog, GetSystemMetrics, GetDC, ReleaseDC, SetTimer, KillTimer, SetDlgItemTextW, SendDlgItemMessageW, SetWindowTextW, MessageBoxW, ShowWindow, RegisterHotKey, UnregisterHotKey, SetWindowsHookExW, UnhookWindowsHookEx, GetAncestor, PostMessageW, CallNextHookEx
 imports GDI32, CreateCompatibleDC, CreateDIBSection, SelectObject, BitBlt, PatBlt, GdiFlush, DeleteObject, DeleteDC
 imports COMDLG32, GetSaveFileNameW, CommDlgExtendedError
 imports OLE32, CoInitializeEx, CoUninitialize

@@ -15,6 +15,8 @@ Choose **English**, **Deutsch**, or **Português** in the drop-down. The app sta
 
 The capture code supports primary display dimensions up to 4096 pixels per side. Actual capture rate depends on the display, system load, and encoder. Windows editions without Media Foundation need the relevant Windows media components.
 
+When the recorder window has focus, **Enter** starts recording and **Space** stops it. Restore the window to use Space if it is minimized.
+
 ## Take a screenshot
 
 While the recorder is idle, click **Screenshot and save…**. The app hides its window, captures the primary display, and opens a save dialog for BMP, PNG, or JPEG.
