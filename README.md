@@ -1,49 +1,47 @@
-# Easy Screen Recorder
+# Easy Screen Recorder – einfache deutsche Anleitung
 
-[![Download for Windows (ZIP)](https://img.shields.io/badge/Download_for_Windows-ZIP-0078D4?style=for-the-badge)](https://github.com/aurabin/Easy-Assembly-Scrreen-Recorder/raw/refs/heads/main/Easy_Screen_Recorder_for_Windows.zip)
-
-A small x86-64 assembly screen recorder for 64-bit Windows 10 (version 1703 or later) and Windows 11. It captures the entire primary display and targets 30 frames per second. Windows Media Foundation encodes H.264 video into an MP4 file. Recordings are silent.
+Mit diesem Programm kannst du den Bildschirm aufnehmen. Die Windows-Version erstellt ein **MP4-Video ohne Ton**. Sie ist für Windows 10 ab Version 1703 und Windows 11 mit 64 Bit gedacht.
 
 ## Downloads
 
-| Platform | Download |
+| System | Datei |
 |---|---|
-| Windows x64 | [Download ZIP](https://github.com/aurabin/Easy-Assembly-Scrreen-Recorder/raw/refs/heads/main/downloads/Easy_Screen_Recorder_Windows-x64.zip) |
-| AmigaOS 3.9 · 68040 | [Download ZIP](https://github.com/aurabin/Easy-Assembly-Scrreen-Recorder/raw/refs/heads/main/downloads/Easy_Screen_Recorder_AmigaOS39-040.zip) |
-| AmigaOS 3.9 · 68060 | [Download ZIP](https://github.com/aurabin/Easy-Assembly-Scrreen-Recorder/raw/refs/heads/main/downloads/Easy_Screen_Recorder_AmigaOS39-060.zip) |
-| Apollo Vampire · 68080 | [Download ZIP](https://github.com/aurabin/Easy-Assembly-Scrreen-Recorder/raw/refs/heads/main/downloads/Easy_Screen_Recorder_Apollo-Vampire-080.zip) |
-| AROS/m68k · 68080 | [Download ZIP](https://github.com/aurabin/Easy-Assembly-Scrreen-Recorder/raw/refs/heads/main/downloads/Easy_Screen_Recorder_AROS-m68k-080.zip) |
-| AROS x86-64 · C | [Download ZIP](https://github.com/aurabin/Easy-Assembly-Scrreen-Recorder/raw/refs/heads/main/downloads/Easy_Screen_Recorder_AROS-x86_64-c.zip) |
-| AROS x86-64 · C++ | [Download ZIP](https://github.com/aurabin/Easy-Assembly-Scrreen-Recorder/raw/refs/heads/main/downloads/Easy_Screen_Recorder_AROS-x86_64-cpp.zip) |
+| Windows 64 Bit | [ZIP herunterladen](https://github.com/aurabin/Easy-Assembly-Scrreen-Recorder/raw/refs/heads/main/downloads/Easy_Screen_Recorder_Windows-x64.zip) |
+| AmigaOS 3.9 mit 68040 | [ZIP herunterladen](https://github.com/aurabin/Easy-Assembly-Scrreen-Recorder/raw/refs/heads/main/downloads/Easy_Screen_Recorder_AmigaOS39-040.zip) |
+| AmigaOS 3.9 mit 68060 | [ZIP herunterladen](https://github.com/aurabin/Easy-Assembly-Scrreen-Recorder/raw/refs/heads/main/downloads/Easy_Screen_Recorder_AmigaOS39-060.zip) |
+| Apollo Vampire mit 68080 | [ZIP herunterladen](https://github.com/aurabin/Easy-Assembly-Scrreen-Recorder/raw/refs/heads/main/downloads/Easy_Screen_Recorder_Apollo-Vampire-080.zip) |
+| AROS/m68k mit 68080 | [ZIP herunterladen](https://github.com/aurabin/Easy-Assembly-Scrreen-Recorder/raw/refs/heads/main/downloads/Easy_Screen_Recorder_AROS-m68k-080.zip) |
+| AROS x86-64, C-Version | [ZIP herunterladen](https://github.com/aurabin/Easy-Assembly-Scrreen-Recorder/raw/refs/heads/main/downloads/Easy_Screen_Recorder_AROS-x86_64-c.zip) |
+| AROS x86-64, C++-Version | [ZIP herunterladen](https://github.com/aurabin/Easy-Assembly-Scrreen-Recorder/raw/refs/heads/main/downloads/Easy_Screen_Recorder_AROS-x86_64-cpp.zip) |
 
-Each ZIP includes the executable for that platform, source code, and documentation. The Amiga and AROS packages include Shell usage and build instructions.
+Die ZIP-Pakete sollen jeweils das passende Programm, den Quellcode und eine Anleitung enthalten. Ob jedes Paket auf echter Hardware funktioniert, muss getrennt getestet werden.
 
-## Record (Windows)
+## Windows: Bildschirm aufnehmen
 
-Choose **English**, **Deutsch**, or **Português** in the drop-down. The app starts in the Windows display language when it is supported and uses English otherwise.
+1. Entpacke die ZIP-Datei und öffne `ScreenRecorder.exe`.
+2. Klicke auf **Record** und wähle einen Speicherort für die MP4-Datei.
+3. Nach 15 Sekunden wird das Programmfenster verkleinert.
+4. Mit **Strg + Umschalt + F10** beendest und speicherst du die Aufnahme. Du kannst auch das Fenster wieder öffnen und auf **Stop** klicken.
 
-1. Run **ScreenRecorder.exe**.
-2. Click **Record** and choose an MP4 destination.
-3. The window minimizes when the 15-second countdown ends.
-4. Press **Ctrl+Shift+F10** to finish and save. You can also restore the recorder and click **Stop**.
+Wenn das Programmfenster aktiv ist, startet **Enter** die Aufnahme. **Leertaste** stoppt sie. Wenn das Fenster verkleinert ist, musst du es für die Leertaste zuerst wieder öffnen.
 
-The capture code supports primary display dimensions up to 4096 pixels per side. Actual capture rate depends on the display, system load, and encoder. Windows editions without Media Foundation need the relevant Windows media components.
+Du kannst die Sprache **Deutsch**, **Englisch** oder **Portugiesisch** auswählen. Wenn die Windows-Sprache nicht unterstützt wird, verwendet das Programm Englisch.
 
-When the recorder window has focus, **Enter** starts recording and **Space** stops it. Restore the window to use Space if it is minimized.
+## Bildschirmfoto
 
-MP4 recording stops automatically at 85% of the estimated time available on the selected drive. The estimate uses the configured video bitrate and reserves space for file finalization.
+Wenn gerade keine Aufnahme läuft, klicke auf **Screenshot and save…**. Du kannst ein Bild als BMP, PNG oder JPEG speichern.
 
-## Take a screenshot
+## Technische Grenzen
 
-While the recorder is idle, click **Screenshot and save…**. The app hides its window, captures the primary display, and opens a save dialog for BMP, PNG, or JPEG.
+- Die Aufnahme soll mit bis zu 30 Bildern pro Sekunde laufen. Die tatsächliche Geschwindigkeit hängt vom Computer ab.
+- Die Hauptanzeige darf höchstens 4096 Pixel breit und 4096 Pixel hoch sein.
+- Das Programm verwendet Windows Media Foundation für H.264 und MP4. Fehlen diese Windows-Medienfunktionen, kann die Aufnahme scheitern.
+- Die Aufnahme stoppt automatisch bei 85 Prozent der geschätzten möglichen Aufnahmezeit. So bleibt Platz, um die Datei fertigzustellen.
+- Die Windows-Aufnahme enthält **keinen Ton**.
 
-## Support
+## Quellcode selbst bauen
 
-Recording and saving are free. You can support the project on the developer’s [bunq.me page](https://bunq.me/JMLealRuivo). Any contribution is optional, and available payment amounts depend on bunq and the payment method.
-
-## Build
-
-Use GNU Binutils on x86-64 Linux or WSL. The linker must support the `i386pep` emulation. Run these commands from the project directory.
+Du brauchst GNU Binutils auf einem 64-Bit-Linux-System oder unter WSL. Der Linker muss `i386pep` unterstützen. Im Projektordner:
 
 ```sh
 as --64 -o screen_mp4.o screen_mp4.s
@@ -52,6 +50,10 @@ ld -mi386pep --image-base 0x400000 --subsystem windows --nxcompat \
   -o ScreenRecorder.exe screen_mp4.o
 ```
 
-The recorder uses Win32 GDI for capture and Media Foundation for encoding. The executable's structure, assembly frame conversion, and sample timestamps were checked on Linux. Live capture and MP4 finalization still need a Windows test.
+Das Programm nutzt Win32 GDI für die Bildschirmaufnahme und Windows Media Foundation für das MP4-Video. Der Aufbau der EXE-Datei, die Bildumwandlung und die Zeitangaben wurden unter Linux geprüft. **Ein vollständiger Windows-Test der Aufnahme und des Speicherns steht noch aus.**
 
-The project source is available under the [MIT License](LICENSE).
+## Unterstützung und Lizenz
+
+Die Aufnahme und das Speichern sind kostenlos. Freiwillige Unterstützung ist über [bunq.me](https://bunq.me/JMLealRuivo) möglich. Die Höhe möglicher Zahlungen hängt vom Zahlungsdienst ab.
+
+Der Quellcode steht unter der [MIT-Lizenz](LICENSE).
